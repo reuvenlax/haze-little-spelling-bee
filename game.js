@@ -21,6 +21,10 @@ class SpellingBeeGame {
     this.rankIndex = 0;
     this.queenCelebrated = false;
     this.voiceEnabled = true;
+    this.selectedVoiceURI = "auto";
+    this.availableVoices = [];
+    this.preferredVoice = null;
+    this.speechTimeout = null;
 
     // Hint state
     this.activeHintWord = null;
@@ -41,6 +45,7 @@ class SpellingBeeGame {
     this.audioCtx = null;
 
     this.loadSavedState();
+    this.initVoices();
     this.initPuzzle(this.puzzleIndex, false);
     this.bindEvents();
     this.resizeCanvases();
@@ -58,6 +63,9 @@ class SpellingBeeGame {
       }
       if (typeof saved.voiceEnabled === "boolean") {
         this.voiceEnabled = saved.voiceEnabled;
+      }
+      if (typeof saved.selectedVoiceURI === "string") {
+        this.selectedVoiceURI = saved.selectedVoiceURI;
       }
       this.allProgress = saved.progress || {};
     } catch (e) {
@@ -79,12 +87,115 @@ class SpellingBeeGame {
         JSON.stringify({
           puzzleIndex: this.puzzleIndex,
           voiceEnabled: this.voiceEnabled,
+          selectedVoiceURI: this.selectedVoiceURI,
           progress: this.allProgress
         })
       );
     } catch (e) {
       // Ignore storage errors in private browsing
     }
+  }
+
+  // --- Natural Voice Selection ---
+  initVoices() {
+    if (!("speechSynthesis" in window)) return;
+
+    const updateVoiceList = () => {
+      const all = window.speechSynthesis.getVoices() || [];
+      // Filter out novelty / robotic / comedic system voices on macOS
+      const noveltyNames = [
+        "albert", "bad news", "bahh", "bells", "boing", "bubbles", "cellos",
+        "fred", "good news", "jester", "organ", "ralph", "superstar",
+        "trinoids", "whisper", "wobble", "zarvox", "junior", "kathy"
+      ];
+
+      const englishVoices = all.filter(v => {
+        if (!v.lang || !v.lang.toLowerCase().startsWith("en")) return false;
+        const lower = v.name.toLowerCase();
+        return !noveltyNames.some(bad => lower.includes(bad));
+      });
+
+      // Score voices by how natural, warm, and pleasant they sound
+      const scoreVoice = v => {
+        const name = v.name.toLowerCase();
+        const lang = v.lang.toLowerCase();
+        let score = 0;
+
+        // Prefer US English, then GB/AU
+        if (lang.includes("us") || lang === "en-us" || lang === "en_us") score += 30;
+        else if (lang.includes("gb") || lang.includes("au")) score += 15;
+
+        // Top-tier neural / natural voices (Chrome Google TTS, Edge Natural, Apple Premium/Enhanced)
+        if (name === "google us english") score += 200;
+        if (name === "google uk english female") score += 185;
+        if (name.includes("natural")) score += 195;
+        if (name.includes("premium") || name.includes("enhanced")) score += 175;
+        if (name.includes("ava") || name.includes("zoe") || name.includes("allison")) score += 140;
+        if (name.includes("aria") || name.includes("jenny") || name.includes("ana")) score += 150;
+
+        // Warm standard macOS / iOS voices
+        if (name.startsWith("samantha")) score += 120;
+        if (name.startsWith("flo (english (us))")) score += 110;
+        if (name.startsWith("sandy (english (us))")) score += 105;
+        if (name.startsWith("shelley (english (us))")) score += 100;
+        if (name.includes("karen") || name.includes("moira") || name.includes("tessa") || name.includes("victoria")) {
+          score += 95;
+        }
+
+        return score;
+      };
+
+      this.availableVoices = englishVoices.sort((a, b) => scoreVoice(b) - scoreVoice(a));
+      this. preferredVoice = this.availableVoices[0] || null;
+      this.populateVoiceDropdown();
+    };
+
+    updateVoiceList();
+    if (window.speechSynthesis.onvoiceschanged !== undefined) {
+      window.speechSynthesis.onvoiceschanged = updateVoiceList;
+    }
+  }
+
+  populateVoiceDropdown() {
+    const select = document.getElementById("voice-select");
+    if (!select) return;
+
+    select.innerHTML = "";
+    const autoOpt = document.createElement("option");
+    autoOpt.value = "auto";
+    const bestLabel = this.preferredVoice ? `✨ Auto (${this.cleanVoiceName(this.preferredVoice.name)})` : "✨ Best Natural Voice";
+    autoOpt.textContent = bestLabel;
+    select.appendChild(autoOpt);
+
+    // Show top 10 pleasant English voices so the user can pick their favorite
+    this.availableVoices.slice(0, 10).forEach(v => {
+      const opt = document.createElement("option");
+      opt.value = v.voiceURI;
+      opt.textContent = `🎙️ ${this.cleanVoiceName(v.name)}`;
+      select.appendChild(opt);
+    });
+
+    if (this.selectedVoiceURI && [...select.options].some(o => o.value === this.selectedVoiceURI)) {
+      select.value = this.selectedVoiceURI;
+    } else {
+      select.value = "auto";
+    }
+  }
+
+  cleanVoiceName(name) {
+    return name
+      .replace(/\(English \(US\)\)/gi, "US")
+      .replace(/\(English \(UK\)\)/gi, "UK")
+      .replace(/Microsoft /gi, "")
+      .replace(/Online \(Natural\) - English \(United States\)/gi, "(Natural)");
+  }
+
+  getActiveVoice() {
+    if (this.selectedVoiceURI && this.selectedVoiceURI !== "auto") {
+      const match = this.availableVoices.find(v => v.voiceURI === this.selectedVoiceURI);
+      if (match) return match;
+    }
+    return this.preferredVoice;
   }
 
   // --- Puzzle Setup & Word Lists ---
@@ -121,10 +232,8 @@ class SpellingBeeGame {
     const cx = w / 2;
     const cy = h / 2;
     const hexRadius = 48;
-    // Distance between hexagon centers for flat-topped or pointy-topped hexes
     const dist = hexRadius * 1.82;
 
-    // 6 surrounding angles (30, 90, 150, 210, 270, 330 degrees)
     const angles = [-90, -30, 30, 90, 150, 210].map(a => (a * Math.PI) / 180);
 
     this.hexCells = [
@@ -154,12 +263,10 @@ class SpellingBeeGame {
 
   resizeCanvases() {
     const dpr = window.devicePixelRatio || 1;
-    // Honeycomb canvas (logical 380x340)
     this.hcCanvas.width = 380 * dpr;
     this.hcCanvas.height = 340 * dpr;
     this.hcCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    // FX canvas (full window)
     this.fxCanvas.width = window.innerWidth * dpr;
     this.fxCanvas.height = window.innerHeight * dpr;
     this.fxCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -183,7 +290,6 @@ class SpellingBeeGame {
 
     for (let i = 0; i < this.hexCells.length; i++) {
       const cell = this.hexCells[i];
-      // Spring scale animation
       if (cell.pressAnim > 0) {
         cell.pressAnim = Math.max(0, cell.pressAnim - 0.08);
       }
@@ -305,7 +411,7 @@ class SpellingBeeGame {
     requestAnimationFrame(() => this.animate());
   }
 
-  // --- Sound Effects (Web Audio API) & Voice (Web Speech API) ---
+  // --- Sound Effects (Warm Marimba Envelope) & Pleasant Voice ---
   ensureAudio() {
     if (!this.audioCtx) {
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
@@ -318,7 +424,7 @@ class SpellingBeeGame {
     }
   }
 
-  playTone(freq = 520, duration = 0.09, type = "sine", delay = 0) {
+  playTone(freq = 520, duration = 0.11, type = "sine", delay = 0, peakGain = 0.08) {
     try {
       this.ensureAudio();
       if (!this.audioCtx) return;
@@ -327,12 +433,14 @@ class SpellingBeeGame {
       const gain = this.audioCtx.createGain();
       osc.type = type;
       osc.frequency.setValueAtTime(freq, now);
-      gain.gain.setValueAtTime(0.14, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+      // Soft attack and warm release so there is no click or harsh beep
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.linearRampToValueAtTime(peakGain, now + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
       osc.connect(gain);
       gain.connect(this.audioCtx.destination);
       osc.start(now);
-      osc.stop(now + duration);
+      osc.stop(now + duration + 0.01);
     } catch (e) {
       // Ignore audio errors
     }
@@ -341,25 +449,48 @@ class SpellingBeeGame {
   playSuccessChime(isRankUp = false) {
     const notes = isRankUp ? [523.25, 659.25, 783.99, 1046.5] : [523.25, 659.25, 783.99];
     notes.forEach((n, idx) => {
-      this.playTone(n, 0.16, "triangle", idx * 0.09);
+      this.playTone(n, 0.18, "sine", idx * 0.075, 0.09);
     });
   }
 
   playGentleOops() {
-    this.playTone(260, 0.12, "sine", 0);
-    this.playTone(220, 0.15, "sine", 0.1);
+    this.playTone(300, 0.12, "sine", 0, 0.06);
+    this.playTone(250, 0.16, "sine", 0.09, 0.06);
   }
 
-  speak(text) {
+  speak(text, delayMs = 0) {
     if (!this.voiceEnabled || !("speechSynthesis" in window)) return;
-    try {
-      window.speechSynthesis.cancel();
-      const utter = new SpeechSynthesisUtterance(text);
-      utter.rate = 0.92; // Slightly slower and clearer for a 6-year-old
-      utter.pitch = 1.12; // Cheerful friendly pitch
-      window.speechSynthesis.speak(utter);
-    } catch (e) {
-      // Ignore speech synthesis errors
+    if (this.speechTimeout) {
+      clearTimeout(this.speechTimeout);
+      this.speechTimeout = null;
+    }
+
+    const runSpeech = () => {
+      try {
+        window.speechSynthesis.cancel();
+        const utter = new SpeechSynthesisUtterance(text);
+        const voice = this.getActiveVoice();
+        if (voice) {
+          utter.voice = voice;
+          utter.lang = voice.lang;
+        }
+        // Keep pitch at 1.0 and rate near 1.0 so neural/natural voices (like Google US English)
+        // never suffer from metallic pitch-shifting or fall back to local robotic synthesis!
+        const isGoogleOrNatural =
+          voice && (voice.name.toLowerCase().includes("google") || voice.name.toLowerCase().includes("natural"));
+        utter.pitch = 1.0;
+        utter.rate = isGoogleOrNatural ? 1.0 : 0.96;
+        utter.volume = 1.0;
+        window.speechSynthesis.speak(utter);
+      } catch (e) {
+        // Ignore speech synthesis errors
+      }
+    };
+
+    if (delayMs > 0) {
+      this.speechTimeout = setTimeout(runSpeech, delayMs);
+    } else {
+      runSpeech();
     }
   }
 
@@ -483,11 +614,12 @@ class SpellingBeeGame {
       this.playSuccessChime(false);
     }
 
-    // Speak the word out loud!
+    // Speak the word out loud after the soft chime finishes!
+    const spokenWord = word.toLowerCase();
     if (kidInfo) {
-      this.speak(`${praise} ${word.toLowerCase()}!`);
+      this.speak(`${spokenWord}! ${kidInfo.clue}.`, 240);
     } else {
-      this.speak(`${praise} ${word.toLowerCase()}!`);
+      this.speak(`${praise} ${spokenWord}!`, 240);
     }
 
     this.renderUI();
@@ -523,8 +655,9 @@ class SpellingBeeGame {
 
     this.renderHintCard();
     const info = KID_WORDS[this.activeHintWord];
-    this.playTone(660, 0.1, "triangle");
-    this.speak(`Hint: ${info.clue}. Starts with ${this.activeHintWord[0]}.`);
+    this.playTone(587.33, 0.1, "sine", 0, 0.07);
+    const revealedLetters = this.activeHintWord.slice(0, this.hintRevealCount).split("").join(", ");
+    this.speak(`${info.clue}. It starts with ${revealedLetters}.`, 140);
   }
 
   renderHintCard() {
@@ -577,7 +710,7 @@ class SpellingBeeGame {
         this.queenCelebrated = true;
         setTimeout(() => {
           document.getElementById("queen-modal").classList.remove("hidden");
-          this.speak("Hooray! You reached Queen Bee! Amazing spelling, Haze!");
+          this.speak("Hooray! You reached Queen Bee! Amazing spelling, Haze!", 200);
         }, 500);
       }
     }
@@ -795,7 +928,8 @@ class SpellingBeeGame {
     document.getElementById("hint-close-btn").addEventListener("click", () => this.closeHint());
     document.getElementById("hint-speak-btn").addEventListener("click", () => {
       if (this.activeHintWord && KID_WORDS[this.activeHintWord]) {
-        this.speak(`${KID_WORDS[this.activeHintWord].clue}. Starts with ${this.activeHintWord[0]}.`);
+        const revealedLetters = this.activeHintWord.slice(0, this.hintRevealCount).split("").join(", ");
+        this.speak(`${KID_WORDS[this.activeHintWord].clue}. It starts with ${revealedLetters}.`);
       }
     });
 
@@ -808,10 +942,21 @@ class SpellingBeeGame {
       }
     });
 
+    const voiceSelect = document.getElementById("voice-select");
+    if (voiceSelect) {
+      voiceSelect.addEventListener("change", e => {
+        this.selectedVoiceURI = e.target.value;
+        this.voiceEnabled = true;
+        this.renderUI();
+        this.saveState();
+        this.speak("Hi Haze! Ready to spell some words?");
+      });
+    }
+
     document.getElementById("bee-mascot").addEventListener("click", e => {
       this.playSuccessChime(false);
       this.spawnBurst(e.clientX || 120, e.clientY || 60, 20, true);
-      this.speak("Bzzzz! Hi Haze! Let's spell some words!");
+      this.speak("Hi Haze! Let's spell some words!", 220);
     });
 
     document.getElementById("puzzle-select-btn").addEventListener("click", () => {

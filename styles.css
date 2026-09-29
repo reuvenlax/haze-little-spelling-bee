@@ -127,6 +127,21 @@ body {
   color: #14532d;
 }
 
+.pill-select {
+  background: #ffffff;
+  border: 2.5px solid #f6c445;
+  border-bottom-width: 5px;
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-family: inherit;
+  font-size: 0.92rem;
+  font-weight: 800;
+  color: var(--text-dark);
+  cursor: pointer;
+  outline: none;
+  max-width: 215px;
+}
+
 /* Rank & Progress Card */
 .rank-card {
   background: var(--card-bg);
