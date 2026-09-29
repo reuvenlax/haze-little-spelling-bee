@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>🐝 Haze's Little Spelling Bee</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🐝</text></svg>">
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Full-screen celebration & floating meadow particles canvas -->
+  <canvas id="fx-canvas" aria-hidden="true"></canvas>
+
+  <div class="app-container">
+    <!-- Top Header -->
+    <header class="top-header">
+      <div class="brand">
+        <span class="brand-bee" id="bee-mascot" title="Tap me to buzz!">🐝</span>
+        <div>
+          <h1>Haze's Little Spelling Bee</h1>
+          <p class="subtitle">Spell 3-letter or bigger words using the golden middle letter!</p>
+        </div>
+      </div>
+
+      <div class="header-controls">
+        <button id="puzzle-select-btn" class="pill-btn" type="button" title="Choose a puzzle">
+          <span id="current-puzzle-title">🌻 Sunny Meadow</span>
+          <span class="caret">▾</span>
+        </button>
+        <button id="voice-toggle-btn" class="pill-btn active" type="button" title="Toggle read-aloud voice">
+          🔊 Voice: ON
+        </button>
+      </div>
+    </header>
+
+    <!-- Rank & Star Progress Card -->
+    <section class="rank-card" aria-label="Progress and Rank">
+      <div class="rank-top">
+        <div class="rank-badge-wrap">
+          <span class="rank-emoji" id="rank-emoji">🌱</span>
+          <div>
+            <div class="rank-label">Current Rank</div>
+            <div class="rank-name" id="rank-name">Little Sprout</div>
+          </div>
+        </div>
+
+        <div class="score-pills">
+          <div class="score-pill star-pill">
+            <span>⭐</span>
+            <strong id="star-count">0</strong>
+            <span>Stars</span>
+          </div>
+          <div class="score-pill word-pill">
+            <span>📖</span>
+            <strong id="word-count">0</strong>
+            <span>Words</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="rank-track-wrapper">
+        <div class="rank-track">
+          <div class="rank-fill" id="rank-fill" style="width: 0%"></div>
+        </div>
+        <div class="rank-milestones" id="rank-milestones">
+          <!-- Populated by game.js -->
+        </div>
+      </div>
+      <div class="next-rank-hint" id="next-rank-hint">
+        Find your first word to earn stars! ✨
+      </div>
+    </section>
+
+    <!-- Main Game Area -->
+    <main class="game-grid">
+      <!-- Left / Center Column: Word Input, Hints, Honeycomb, Controls -->
+      <section class="play-panel">
+        <!-- Toast Feedback Banner -->
+        <div class="feedback-row">
+          <div id="toast-message" class="toast-message" role="status" aria-live="polite">
+            Tap the honeycomb letters to spell a word!
+          </div>
+        </div>
+
+        <!-- Emoji Hint Card (Hidden until Hint button is pressed) -->
+        <div id="hint-card" class="hint-card hidden" aria-live="polite">
+          <div class="hint-left">
+            <span id="hint-emoji" class="hint-emoji">🐱</span>
+            <div class="hint-text-group">
+              <div class="hint-title">
+                <span>Picture Hint</span>
+                <button id="hint-speak-btn" class="mini-speak-btn" type="button" title="Read clue out loud">🔊 Listen</button>
+              </div>
+              <div id="hint-clue" class="hint-clue">A furry pet that says meow</div>
+              <div id="hint-slots" class="hint-slots"></div>
+            </div>
+          </div>
+          <button id="hint-close-btn" class="hint-close-btn" type="button" title="Close hint">✕</button>
+        </div>
+
+        <!-- Current Spelled Word Tiles -->
+        <div class="word-display-box" id="word-display-box">
+          <div id="word-tiles" class="word-tiles">
+            <span class="word-placeholder">Tap letters below...</span>
+          </div>
+          <button id="clear-word-btn" class="clear-word-btn hidden" type="button" title="Clear word">✕</button>
+        </div>
+
+        <!-- Interactive HTML5 Canvas Honeycomb -->
+        <div class="honeycomb-container">
+          <canvas id="honeycomb-canvas" width="380" height="340" aria-label="Spelling Bee Honeycomb"></canvas>
+        </div>
+
+        <!-- Big Kid-Friendly Action Buttons -->
+        <div class="action-buttons">
+          <button id="delete-btn" class="action-btn secondary-btn" type="button">
+            <span class="btn-icon">⌫</span>
+            <span>Back</span>
+          </button>
+          <button id="shuffle-btn" class="action-btn secondary-btn" type="button">
+            <span class="btn-icon">🔄</span>
+            <span>Mix</span>
+          </button>
+          <button id="hint-btn" class="action-btn hint-action-btn" type="button">
+            <span class="btn-icon">💡</span>
+            <span>Hint</span>
+          </button>
+          <button id="submit-btn" class="action-btn primary-btn" type="button">
+            <span class="btn-icon">✅</span>
+            <span>Enter!</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- Right / Bottom Column: Found Words Treasure Box -->
+      <section class="words-panel">
+        <div class="words-panel-header">
+          <h2>🍯 Words You Found (<span id="found-count-header">0</span>)</h2>
+          <span class="tap-to-hear-hint">🔊 Tap any word to hear it!</span>
+        </div>
+
+        <div id="found-words-list" class="found-words-list">
+          <div class="empty-words-state">
+            <div class="empty-bee">🐝</div>
+            <p>Your honey jar is waiting for words!</p>
+            <p class="empty-sub">Need an idea? Tap the <strong>💡 Hint</strong> button!</p>
+          </div>
+        </div>
+
+        <div class="words-panel-footer">
+          <div class="picture-words-progress" id="picture-words-progress">
+            Picture Words found: 0 / 0
+          </div>
+          <button id="reset-puzzle-btn" class="text-btn" type="button">Start Puzzle Over</button>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Puzzle Picker Modal -->
+  <div id="puzzle-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="modal-title">🌈 Choose a Honeycomb Puzzle!</h2>
+        <button id="close-modal-btn" class="hint-close-btn" type="button">✕</button>
+      </div>
+      <div id="puzzle-grid" class="puzzle-grid">
+        <!-- Populated by game.js -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Queen Bee Celebration Modal -->
+  <div id="queen-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true">
+    <div class="modal-card queen-card">
+      <div class="queen-crown-big">👑🐝</div>
+      <h2>Hooray! Queen Bee!</h2>
+      <p id="queen-message">You reached the highest rank in this honeycomb! Amazing spelling, Haze!</p>
+      <div class="queen-buttons">
+        <button id="keep-playing-btn" class="action-btn secondary-btn" type="button">Keep Finding Words</button>
+        <button id="next-puzzle-btn" class="action-btn primary-btn" type="button">🎲 Next Puzzle!</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="words.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
